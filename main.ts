@@ -207,14 +207,38 @@ const GLYPHS: Record<string, string[]> = {
   "/": ["M8,1 L2,12"],
 };
 
-const ADVANCE = 11; // glyph advance, in grid units
 const SPACE_ADVANCE = 4.5;
 const X_SQUASH = 0.85; // slight horizontal condensation for a hand-lettered look
+// Clear space kept between the ink of two adjacent glyphs, in grid units.
+// The old code used one fixed advance (11) for every glyph, so narrow
+// glyphs whose ink is a single stem — i, l (ink only at x=5), ' (x=4..6),
+// . : ; ! — left ~5 empty units on each side. The ink-to-ink gap around
+// them was 7-11 units, as wide as (or wider than) the gap between words,
+// so "bring" read as "br ing" and "I'll" as "I' ll". Each glyph now
+// advances by its own ink width plus this gap, and is drawn shifted so
+// its ink starts at x=1, giving every pair the same 4-unit gap.
+const LETTER_GAP = 4;
+
+// Ink bounds of a glyph, from its path points.
+function glyphBounds(ch: string): { minX: number; maxX: number } {
+  const paths = GLYPHS[ch];
+  let minX = Infinity;
+  let maxX = -Infinity;
+  for (const d of paths) {
+    for (const [x] of parsePath(d)) {
+      if (x < minX) minX = x;
+      if (x > maxX) maxX = x;
+    }
+  }
+  return { minX, maxX };
+}
 
 function glyphAdvance(ch: string, size: number): number {
   const sx = (size / 14) * X_SQUASH;
   if (ch === " ") return SPACE_ADVANCE * sx;
-  return ADVANCE * sx;
+  if (!GLYPHS[ch]) return 11 * sx;
+  const { minX, maxX } = glyphBounds(ch);
+  return (maxX - minX + LETTER_GAP) * sx;
 }
 
 function textWidth(s: string, size: number): number {
@@ -240,9 +264,12 @@ function drawGlyph(ch: string, ox: number, oy: number, size: number, c: RGB): vo
   if (!paths) return;
   const sx = (size / 14) * X_SQUASH;
   const sy = size / 14;
+  // Shift the glyph so its leftmost ink sits at x=1, matching the advance
+  // in glyphAdvance: narrow glyphs (i, l, ') no longer float mid-cell.
+  const shift = 1 - glyphBounds(ch).minX;
   const w = Math.max(2.4, size * 0.085);
   for (const d of paths) {
-    const pts = parsePath(d).map(([x, y]): [number, number] => [ox + x * sx, oy + y * sy]);
+    const pts = parsePath(d).map(([x, y]): [number, number] => [ox + (x + shift) * sx, oy + y * sy]);
     if (pts.length === 1) {
       fillCircle(pts[0][0], pts[0][1], w / 2, c);
     } else {
